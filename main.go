@@ -1,7 +1,7 @@
 package main
 
 import (
-	"goshare/cmd"
+	"github.com/piotrszyma/goshare/cmd"
 )
 
 func main() {
