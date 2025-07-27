@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"goshare/internal/webserver"
 	"os"
+
+	"github.com/piotrszyma/goshare/internal/webserver"
 
 	"github.com/spf13/cobra"
 )
