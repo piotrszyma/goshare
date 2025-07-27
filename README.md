@@ -41,7 +41,7 @@ To run the server and allow clients to upload files to your current working dire
 goshare
 ```
 
-This will start the server on port 8000, accessible from other devices on your local network. You can access the web interface from other devices by navigating to `http://<your-server-ip>:8000` in a web browser.
+This will start the server on a random available port, accessible from other devices on your local network. You can access the web interface from other devices by navigating to the URL printed in the console when the server starts.
 
 When the server starts, it will print a QR code to the console that you can scan with your mobile device to easily access the file sharing interface.
 

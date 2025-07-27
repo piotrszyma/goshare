@@ -551,23 +551,36 @@ func Run(sharePath string, uploadsDir string) {
 		http.Redirect(w, r, "/?message=File uploaded successfully!&type=success", http.StatusSeeOther)
 	})))
 
+	// Find an available port
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		log.Fatal("Failed to find available port:", err)
+	}
+
+	// Get the actual port that was assigned
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	// Close the listener temporarily - we'll recreate it with the http server
+	listener.Close()
+
 	// Get local IP address
 	localIP, err := getLocalIP()
 	if err != nil {
 		log.Printf("Warning: Could not determine local IP address: %v", err)
-		log.Println("Starting server on 0.0.0.0:8000")
-		fmt.Println("Server URL: http://localhost:8000")
+		log.Printf("Starting server on 0.0.0.0:%d", port)
+		fmt.Printf("Server URL: http://localhost:%d\n", port)
 	} else {
-		serverURL := fmt.Sprintf("http://%s:8000", localIP)
+		serverURL := fmt.Sprintf("http://%s:%d", localIP, port)
 		serverURLWithKey := fmt.Sprintf("%s?key=%s", serverURL, secretKey)
-		log.Printf("Starting server on 0.0.0.0:8000 (accessible from: %s)", serverURLWithKey)
+		log.Printf("Starting server on 0.0.0.0:%d (accessible from: %s)", port, serverURLWithKey)
 		fmt.Printf("Server URL: %s\n", serverURLWithKey)
 
 		// Print QR code for easy mobile access
 		printQRCode(serverURLWithKey)
 	}
 
-	err = http.ListenAndServe("0.0.0.0:8000", nil)
+	address := fmt.Sprintf("0.0.0.0:%d", port)
+	err = http.ListenAndServe(address, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
