@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	_ "embed"
 	"fmt"
 	"html/template"
 	"io"
@@ -9,6 +10,66 @@ import (
 	"net/http"
 	"os"
 )
+
+//go:embed templates/index.html
+var indexHTML string
+
+// templateData holds the data for the index template
+type templateData struct {
+	Message      string
+	MessageType  string
+	Key          string
+	SharedFiles  []fileInfo
+	UploadsFiles []fileInfo
+}
+
+// renderIndexTemplate renders the index.html template with the provided data
+func renderIndexTemplate(w http.ResponseWriter, r *http.Request, uploadsDir, sharePath string) error {
+	// Parse the embedded template
+	tmpl, err := template.New("index.html").Parse(indexHTML)
+	if err != nil {
+		return err
+	}
+
+	// Prepare template data
+	data := templateData{
+		Key: secretKey,
+	}
+
+	// Get files from uploads directory
+	uploadsFileInfoList, err := getUploadsFiles(uploadsDir)
+	if err != nil {
+		data.Message = "Error accessing uploads directory: " + err.Error()
+		data.MessageType = "error"
+	} else {
+		data.UploadsFiles = uploadsFileInfoList
+	}
+
+	// If sharePath is provided, get file info to display
+	if sharePath != "" {
+		// Check if it's a file or directory
+		fileInfoList, err := getSharedFiles(sharePath)
+		if err != nil {
+			data.Message = "Error accessing shared path: " + err.Error()
+			data.MessageType = "error"
+		} else {
+			data.SharedFiles = fileInfoList
+		}
+	}
+
+	// Get any message from query parameters
+	if message := r.URL.Query().Get("message"); message != "" {
+		data.Message = message
+		if messageType := r.URL.Query().Get("type"); messageType != "" {
+			data.MessageType = messageType
+		} else {
+			data.MessageType = "success"
+		}
+	}
+
+	// Execute the template
+	return tmpl.Execute(w, data)
+}
 
 // Run starts an HTTP server on port 8000 that responds with a file upload form on the root path
 // and handles file uploads on the /upload path
@@ -93,62 +154,12 @@ func Run(sharePath string, uploadsDir string) {
 			}
 		}
 
-		// Parse the template from file
-		tmpl, err := template.ParseFiles("internal/webserver/templates/index.html")
+		// Render the template with the appropriate data
+		err := renderIndexTemplate(w, r, uploadsDir, sharePath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		// Prepare template data
-		data := struct {
-			Message      string
-			MessageType  string
-			Key          string
-			SharedFiles  []fileInfo
-			UploadsFiles []fileInfo
-		}{
-			Key: secretKey,
-		}
-
-		// Get files from uploads directory
-		uploadsFileInfoList, err := getUploadsFiles(uploadsDir)
-		if err != nil {
-			data.Message = "Error accessing uploads directory: " + err.Error()
-			data.MessageType = "error"
-		} else {
-			data.UploadsFiles = uploadsFileInfoList
-		}
-
-		// If sharePath is provided, get file info to display
-		if sharePath != "" {
-			// Check if it's a file or directory
-			fileInfoList, err := getSharedFiles(sharePath)
-			if err != nil {
-				data.Message = "Error accessing shared path: " + err.Error()
-				data.MessageType = "error"
-			} else {
-				data.SharedFiles = fileInfoList
-			}
-		}
-
-		// Get any message from query parameters
-		if message := r.URL.Query().Get("message"); message != "" {
-			data.Message = message
-			if messageType := r.URL.Query().Get("type"); messageType != "" {
-				data.MessageType = messageType
-			} else {
-				data.MessageType = "success"
-			}
-		}
-
-		// Execute the template
-		err = tmpl.Execute(w, data)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 	}))
 
 	// Handle file upload
