@@ -106,7 +106,7 @@
             {{range .UploadsFiles}}
             <li class="file-item">
                 <a href="{{.URL}}" class="file-link">{{.Name}}</a>
-                <span class="file-size">({{.Size}} bytes)</span>
+                <span class="file-size">({{.FormatSize}})</span>
             </li>
             {{end}}
         </ul>
@@ -118,7 +118,7 @@
             {{range .SharedFiles}}
             <li class="file-item">
                 <a href="{{.URL}}" class="file-link">{{.Name}}</a>
-                <span class="file-size">({{.Size}} bytes)</span>
+                <span class="file-size">({{.FormatSize}})</span>
             </li>
             {{end}}
         </ul>

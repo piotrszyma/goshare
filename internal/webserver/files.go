@@ -12,6 +12,21 @@ type fileInfo struct {
 	URL  string
 }
 
+// FormatSize returns a human-readable string representation of the file size
+func (f fileInfo) FormatSize() string {
+	size := f.Size
+	switch {
+	case size >= 1<<30: // GB
+		return fmt.Sprintf("%.1f GB", float64(size)/(1<<30))
+	case size >= 1<<20: // MB
+		return fmt.Sprintf("%.1f MB", float64(size)/(1<<20))
+	case size >= 1<<10: // KB
+		return fmt.Sprintf("%.1f KB", float64(size)/(1<<10))
+	default: // Bytes
+		return fmt.Sprintf("%d bytes", size)
+	}
+}
+
 // getSharedFiles returns a list of files to be shared based on the provided path
 func getSharedFiles(sharePath string) ([]fileInfo, error) {
 	var files []fileInfo
