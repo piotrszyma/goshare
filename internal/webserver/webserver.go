@@ -1,8 +1,6 @@
 package webserver
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io"
@@ -10,219 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"time"
-
-	qrcode "github.com/skip2/go-qrcode"
 )
-
-// responseWriter is a wrapper around http.ResponseWriter to capture the status code
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-// WriteHeader overrides the http.ResponseWriter's WriteHeader method to capture the status code
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-// loggingMiddleware logs each request and response status
-func loggingMiddleware(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Record the start time
-		start := time.Now()
-
-		// Wrap the ResponseWriter to capture the status code
-		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		// Call the next handler
-		handler(wrapped, r)
-
-		// Log the request details
-		log.Printf(
-			"%s %s %s %d %s",
-			r.RemoteAddr,
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			time.Since(start),
-		)
-	}
-}
-
-var secretKey string
-
-func init() {
-	// Generate a random secret key at startup
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		log.Fatal("Failed to generate random secret key:", err)
-	}
-	secretKey = hex.EncodeToString(bytes)
-}
-
-// validateKey checks if the request has a valid key parameter
-func validateKey(r *http.Request) bool {
-	keys, ok := r.URL.Query()["key"]
-
-	log.Printf("request with keys = %s", keys)
-
-	if !ok || len(keys) == 0 {
-		return false
-	}
-	return keys[0] == secretKey
-}
-
-// validateKeyCookie checks if the request has a valid key cookie
-func validateKeyCookie(r *http.Request) bool {
-	cookie, err := r.Cookie("key")
-	if err != nil {
-		return false
-	}
-
-	log.Printf("request with key cookie = %s", cookie.Value)
-
-	return cookie.Value == secretKey
-}
-
-// requireKey is middleware that checks for a valid key cookie
-func requireKey(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !validateKeyCookie(r) {
-			http.Error(w, "Unauthorized: invalid or missing key cookie", http.StatusUnauthorized)
-			return
-		}
-		handler(w, r)
-	}
-}
-
-// getLocalIP returns the non-loopback local IP of the host
-func getLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String(), nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no local IP address found")
-}
-
-// printQRCode prints a QR code to the console for the given URL
-func printQRCode(url string) {
-	qr, err := qrcode.New(url, qrcode.Medium)
-	if err != nil {
-		log.Printf("Failed to generate QR code: %v", err)
-		return
-	}
-
-	fmt.Println("\nScan this QR code with your mobile device to access the file sharing server:")
-	fmt.Println(qr.ToSmallString(false))
-}
-
-// fileInfo represents information about a file for display in the UI
-type fileInfo struct {
-	Name string
-	Size int64
-	URL  string
-}
-
-// getSharedFiles returns a list of files to be shared based on the provided path
-func getSharedFiles(sharePath string) ([]fileInfo, error) {
-	var files []fileInfo
-
-	// Check if the path exists
-	info, err := os.Stat(sharePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// If it's a file, add just that file
-	if !info.IsDir() {
-		files = append(files, fileInfo{
-			Name: info.Name(),
-			Size: info.Size(),
-			URL:  "/shared/" + info.Name(),
-		})
-		return files, nil
-	}
-
-	// If it's a directory, add all files in the directory (not subdirectories)
-	entries, err := os.ReadDir(sharePath)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		// Skip subdirectories
-		if entry.IsDir() {
-			continue
-		}
-
-		// Get file info
-		fileInfoStat, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		files = append(files, fileInfo{
-			Name: fileInfoStat.Name(),
-			Size: fileInfoStat.Size(),
-			URL:  "/shared/" + fileInfoStat.Name(),
-		})
-	}
-
-	return files, nil
-}
-
-// getUploadsFiles returns a list of files in the uploads directory
-func getUploadsFiles(uploadsDir string) ([]fileInfo, error) {
-	var files []fileInfo
-
-	// Check if the uploads directory exists
-	info, err := os.Stat(uploadsDir)
-	if err != nil {
-		// If directory doesn't exist, return empty list
-		return files, nil
-	}
-
-	// If it's not a directory, return error
-	if !info.IsDir() {
-		return nil, fmt.Errorf("uploads path is not a directory")
-	}
-
-	// Read files in the directory
-	entries, err := os.ReadDir(uploadsDir)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		// Skip subdirectories
-		if entry.IsDir() {
-			continue
-		}
-
-		// Get file info
-		fileInfoStat, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		files = append(files, fileInfo{
-			Name: fileInfoStat.Name(),
-			Size: fileInfoStat.Size(),
-			URL:  "/uploads/" + fileInfoStat.Name(),
-		})
-	}
-
-	return files, nil
-}
 
 // Run starts an HTTP server on port 8000 that responds with a file upload form on the root path
 // and handles file uploads on the /upload path
@@ -532,8 +318,11 @@ func Run(sharePath string, uploadsDir string) {
 			return
 		}
 
-		// Create destination file
-		dst, err := os.Create(fmt.Sprintf("%s/%s", uploadsDir, handler.Filename))
+		// Generate a unique filename if file already exists
+		uniqueFilename := getUniqueFilename(uploadsDir, handler.Filename)
+
+		// Create destination file with unique name
+		dst, err := os.Create(fmt.Sprintf("%s/%s", uploadsDir, uniqueFilename))
 		if err != nil {
 			http.Redirect(w, r, "/?message=Error creating file: "+err.Error()+"&type=error", http.StatusSeeOther)
 			return
