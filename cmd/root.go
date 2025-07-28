@@ -17,6 +17,8 @@ var (
 	UploadsDir string
 	// Port is the port number for the web server
 	Port int
+	// Public indicates if the server should be publicly accessible via Cloudflare Tunnel
+	Public bool
 )
 
 var rootCmd = &cobra.Command{
@@ -27,7 +29,7 @@ var rootCmd = &cobra.Command{
 examples and usage of using your application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Starting goshare web server...")
-		webserver.Run(SharePath, UploadsDir, Port)
+		webserver.Run(SharePath, UploadsDir, Port, Public)
 	},
 }
 
@@ -48,6 +50,7 @@ func init() {
 	rootCmd.Flags().StringVar(&SharePath, "share", "", "Path to file or directory to share")
 	rootCmd.Flags().StringVar(&UploadsDir, "uploads-dir", "", "Directory to store uploaded files (default: uploads/)")
 	rootCmd.Flags().IntVar(&Port, "port", 0, "Port number for the web server (default: random available port)")
+	rootCmd.Flags().BoolVar(&Public, "public", false, "Make the server publicly accessible via Cloudflare Tunnel")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

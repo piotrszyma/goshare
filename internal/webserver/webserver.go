@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"html/template"
@@ -9,6 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
 //go:embed templates/index.html
@@ -73,7 +78,7 @@ func renderIndexTemplate(w http.ResponseWriter, r *http.Request, uploadsDir, sha
 
 // Run starts an HTTP server on the specified port that responds with a file upload form on the root path
 // and handles file uploads on the /upload path
-func Run(sharePath string, uploadsDir string, port int) {
+func Run(sharePath string, uploadsDir string, port int, public bool) {
 	// Set default uploads directory if not provided
 	defaultUploadsDir := "uploads"
 	if uploadsDir == "" {
@@ -252,9 +257,105 @@ func Run(sharePath string, uploadsDir string, port int) {
 		printQRCode(serverURLWithKey)
 	}
 
-	address := fmt.Sprintf("0.0.0.0:%d", actualPort)
-	err = http.ListenAndServe(address, nil)
-	if err != nil {
-		log.Fatal(err)
+	// If public flag is set, start cloudflared tunnel
+	if public {
+		// Create a channel to signal when the server should shut down
+		done := make(chan bool, 1)
+
+		// Start cloudflared as a subprocess
+		url := fmt.Sprintf("http://localhost:%d", actualPort)
+		cmd := exec.Command("cloudflared", "tunnel", "--url", url)
+
+		// Redirect cloudflared's stdout and stderr to the main process's stdout and stderr
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		// Create a wait group to manage goroutines
+		var wg sync.WaitGroup
+
+		// Start the cloudflared process
+		err := cmd.Start()
+		if err != nil {
+			log.Fatalf("Failed to start cloudflared: %v", err)
+		}
+
+		// Get the process
+		process := cmd.Process
+
+		// Create an HTTP server instance for better control
+		address := fmt.Sprintf("0.0.0.0:%d", actualPort)
+		server := &http.Server{
+			Addr: address,
+		}
+
+		// Start a goroutine to wait for the cloudflared process to finish
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := cmd.Wait()
+			if err != nil {
+				log.Printf("cloudflared process finished with error: %v", err)
+			} else {
+				log.Println("cloudflared process finished successfully")
+			}
+
+			log.Printf("cloudflared process finished")
+			done <- true
+			log.Printf("cloudflared process finished and sent done <- true")
+		}()
+
+		// Start the HTTP server in a separate goroutine
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := server.ListenAndServe()
+			if err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTP server error: %v", err)
+			}
+
+			log.Printf("HTTP server finished")
+			done <- true
+			log.Printf("HTTP server finished and sent done <- true")
+		}()
+
+		// Set up signal handling for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+		// Wait for either a signal or one of the processes to finish
+		select {
+		case <-sigChan:
+			log.Println("Received interrupt signal, shutting down...")
+		case <-done:
+			log.Println("One of the processes finished, shutting down...")
+		}
+
+		// Kill the cloudflared process
+		if process != nil {
+			log.Println("Terminating cloudflared process...")
+			err := process.Kill()
+			if err != nil {
+				log.Printf("Error killing cloudflared process: %v", err)
+			}
+		}
+
+		// Gracefully shutdown the HTTP server
+		log.Println("Shutting down HTTP server...")
+		err = server.Shutdown(context.Background())
+		if err != nil {
+			log.Printf("Error shutting down HTTP server: %v", err)
+		}
+
+		// Wait for all goroutines to finish
+		log.Println("Wait for all goroutines to finish")
+		wg.Wait()
+		log.Println("Shutdown complete")
+	} else {
+		// Start the HTTP server normally
+		address := fmt.Sprintf("0.0.0.0:%d", actualPort)
+		err = http.ListenAndServe(address, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
