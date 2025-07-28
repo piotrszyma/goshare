@@ -71,9 +71,9 @@ func renderIndexTemplate(w http.ResponseWriter, r *http.Request, uploadsDir, sha
 	return tmpl.Execute(w, data)
 }
 
-// Run starts an HTTP server on port 8000 that responds with a file upload form on the root path
+// Run starts an HTTP server on the specified port that responds with a file upload form on the root path
 // and handles file uploads on the /upload path
-func Run(sharePath string, uploadsDir string) {
+func Run(sharePath string, uploadsDir string, port int) {
 	// Set default uploads directory if not provided
 	defaultUploadsDir := "uploads"
 	if uploadsDir == "" {
@@ -214,35 +214,45 @@ func Run(sharePath string, uploadsDir string) {
 		http.Redirect(w, r, "/?message=File uploaded successfully!&type=success", http.StatusSeeOther)
 	})))
 
-	// Find an available port
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		log.Fatal("Failed to find available port:", err)
+	// Determine the port to use
+	var actualPort int
+	if port > 0 {
+		// Validate port range
+		if port < 1 || port > 65535 {
+			log.Fatalf("Invalid port number: %d. Port must be between 1 and 65535.", port)
+		}
+		actualPort = port
+	} else {
+		// Find an available port
+		listener, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			log.Fatal("Failed to find available port:", err)
+		}
+
+		// Get the actual port that was assigned
+		actualPort = listener.Addr().(*net.TCPAddr).Port
+
+		// Close the listener temporarily - we'll recreate it with the http server
+		listener.Close()
 	}
-
-	// Get the actual port that was assigned
-	port := listener.Addr().(*net.TCPAddr).Port
-
-	// Close the listener temporarily - we'll recreate it with the http server
-	listener.Close()
 
 	// Get local IP address
 	localIP, err := getLocalIP()
 	if err != nil {
 		log.Printf("Warning: Could not determine local IP address: %v", err)
-		log.Printf("Starting server on 0.0.0.0:%d", port)
-		fmt.Printf("Server URL: http://localhost:%d\n", port)
+		log.Printf("Starting server on 0.0.0.0:%d", actualPort)
+		fmt.Printf("Server URL: http://localhost:%d\n", actualPort)
 	} else {
-		serverURL := fmt.Sprintf("http://%s:%d", localIP, port)
+		serverURL := fmt.Sprintf("http://%s:%d", localIP, actualPort)
 		serverURLWithKey := fmt.Sprintf("%s?key=%s", serverURL, secretKey)
-		log.Printf("Starting server on 0.0.0.0:%d (accessible from: %s)", port, serverURLWithKey)
+		log.Printf("Starting server on 0.0.0.0:%d (accessible from: %s)", actualPort, serverURLWithKey)
 		fmt.Printf("Server URL: %s\n", serverURLWithKey)
 
 		// Print QR code for easy mobile access
 		printQRCode(serverURLWithKey)
 	}
 
-	address := fmt.Sprintf("0.0.0.0:%d", port)
+	address := fmt.Sprintf("0.0.0.0:%d", actualPort)
 	err = http.ListenAndServe(address, nil)
 	if err != nil {
 		log.Fatal(err)
